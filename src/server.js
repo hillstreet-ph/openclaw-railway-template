@@ -544,38 +544,30 @@ const setupRateLimiter = {
   },
 };
 
+function hasSetupAuth(header = "") {
+  if (!SETUP_PASSWORD || typeof header !== "string") return false;
+  const [scheme, encoded] = header.split(" ");
+  if (scheme?.toLowerCase() !== "basic" || !encoded) return false;
+  const decoded = Buffer.from(encoded, "base64").toString("utf8");
+  const separator = decoded.indexOf(":");
+  if (separator < 0) return false;
+  const passwordHash = crypto.createHash("sha256").update(decoded.slice(separator + 1)).digest();
+  const expectedHash = crypto.createHash("sha256").update(SETUP_PASSWORD).digest();
+  return crypto.timingSafeEqual(passwordHash, expectedHash);
+}
+
 function requireSetupAuth(req, res, next) {
   if (!SETUP_PASSWORD) {
-    return res
-      .status(500)
-      .type("text/plain")
-      .send(
-        "SETUP_PASSWORD is not set. Set it in Railway Variables before using /setup.",
-      );
+    return res.status(500).type("text/plain").send("SETUP_PASSWORD is not set.");
   }
+  if (hasSetupAuth(req.headers.authorization)) return next();
 
   const ip = req.ip || req.socket?.remoteAddress || "unknown";
   if (setupRateLimiter.isRateLimited(ip)) {
     return res.status(429).type("text/plain").send("Too many requests. Try again later.");
   }
-
-  const header = req.headers.authorization || "";
-  const [scheme, encoded] = header.split(" ");
-  if (scheme !== "Basic" || !encoded) {
-    res.set("WWW-Authenticate", 'Basic realm="OpenClaw Setup"');
-    return res.status(401).send("Auth required");
-  }
-  const decoded = Buffer.from(encoded, "base64").toString("utf8");
-  const idx = decoded.indexOf(":");
-  const password = idx >= 0 ? decoded.slice(idx + 1) : "";
-  const passwordHash = crypto.createHash("sha256").update(password).digest();
-  const expectedHash = crypto.createHash("sha256").update(SETUP_PASSWORD).digest();
-  const isValid = crypto.timingSafeEqual(passwordHash, expectedHash);
-  if (!isValid) {
-    res.set("WWW-Authenticate", 'Basic realm="OpenClaw Setup"');
-    return res.status(401).send("Invalid password");
-  }
-  return next();
+  res.set("WWW-Authenticate", 'Basic realm="OpenClaw Setup"');
+  return res.status(401).send("Auth required");
 }
 
 const app = express();
@@ -1787,6 +1779,11 @@ proxy.on("proxyReqWs", (proxyReq, req, socket, options, head) => {
   );
 });
 
+app.use((req, res, next) => {
+  if (req.path === "/" || req.url?.startsWith("/hooks/")) return next();
+  return requireSetupAuth(req, res, next);
+});
+
 app.use(async (req, res) => {
   if (req.path === "/") {
     return res.sendFile(path.join(process.cwd(), "src", "public", "loading.html"));
@@ -1822,7 +1819,9 @@ app.use(async (req, res) => {
   }
 
   if (req.path === "/openclaw" && !req.query.token) {
-    return res.redirect(`/openclaw?token=${OPENCLAW_GATEWAY_TOKEN}`);
+    res.set("Cache-Control", "no-store");
+    res.set("Referrer-Policy", "no-referrer");
+    return res.redirect(`/openclaw?token=${encodeURIComponent(OPENCLAW_GATEWAY_TOKEN)}`);
   }
 
   return proxy.web(req, res, { target: GATEWAY_TARGET });
@@ -1852,6 +1851,13 @@ const server = app.listen(PORT, () => {
 });
 
 server.on("upgrade", async (req, socket, head) => {
+  if (!hasSetupAuth(req.headers.authorization)) {
+    const limited = setupRateLimiter.isRateLimited(req.socket.remoteAddress || "unknown");
+    const status = limited ? "429 Too Many Requests" : "401 Unauthorized";
+    const challenge = limited ? "" : 'WWW-Authenticate: Basic realm="OpenClaw Setup"\r\n';
+    socket.end(`HTTP/1.1 ${status}\r\n${challenge}Connection: close\r\nContent-Length: 0\r\n\r\n`);
+    return;
+  }
   if (!isConfigured()) {
     socket.destroy();
     return;
