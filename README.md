@@ -46,6 +46,10 @@ This lets you use a ChatGPT/Codex account or an eligible SuperGrok / X Premium s
 4. Copy the **Bot Token** and paste it into `/setup`
 5. Invite the bot to your server (OAuth2 URL Generator → scopes: `bot`, `applications.commands`; then choose permissions)
 
+## Standalone image deployment
+
+Use the [fresh Railway deployment guide](deploy/openclaw-fresh-railway.md) to deploy a digest-pinned image from [hillstreet-ph/open-claw](https://github.com/hillstreet-ph/open-claw) to a separate production service. The setup wizard described above uses the template image.
+
 ## Local testing
 
 ```bash
