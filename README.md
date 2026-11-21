@@ -74,7 +74,7 @@ A: Go to `/setup` on your deployed instance. When prompted for credentials, use 
 
 **Q: I see "gateway disconnected" or authentication errors in the Control UI. What should I do?**
 
-A: Go back to `/setup` and click the "Open OpenClaw UI" button from there. The setup page passes the required auth token to the UI. Accessing the UI directly without the token will cause connection errors.
+A: Sign in with your `SETUP_PASSWORD` at `/openclaw`, or go to `/setup` and click the "Open OpenClaw UI" button. The wrapper requires the same password before proxying dashboard requests and WebSockets.
 
 **Q: How do I approve pairing for Telegram or Discord?**
 
